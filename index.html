@@ -12,7 +12,7 @@
 </head>
 <body>
 <header class="topbar">
-  <button class="menu-button icon-button" id="menu" aria-label="目次を開く" aria-expanded="false">☰</button>
+  <button class="menu-button icon-button" id="menu" aria-label="目次を開く" aria-expanded="false" aria-controls="sidebar" hidden>☰</button>
   <a class="brand" href="#"><span class="brand-icon" aria-hidden="true">▤</span> 講義ノート</a>
   <div class="top-actions"><button id="lock" class="top-button" hidden>ロック</button><button class="icon-button" id="theme" aria-label="表示色を切り替える">◐</button></div>
 </header>
@@ -26,14 +26,14 @@
   <div class="shell" id="reader" hidden>
     <aside class="sidebar" id="sidebar" aria-label="教材の目次">
       <label for="course">講義</label><select id="course"></select>
-      <button id="go-bookmark" class="go-bookmark" hidden>★　しおりへ</button>
-      <div class="side-heading"><h2>目次</h2><span id="section-count"></span></div>
-      <nav id="toc"></nav>
+      <button id="go-bookmark" class="go-bookmark" hidden>しおりへ</button>
+      <div class="search"><label for="search">教材を検索</label><div class="search-row"><input id="search" type="search" placeholder="言葉を入力" autocomplete="off"><button id="clear-search" type="button" hidden>消去</button></div></div>
+      <div class="side-heading"><h2 id="nav-title">目次</h2><span id="section-count" aria-live="polite"></span></div>
+      <nav id="toc" aria-label="目次"></nav><div id="search-results" hidden></div>
     </aside>
     <div class="scrim" id="scrim"></div>
     <div class="reading-layout">
-      <article class="reading"><div class="breadcrumb" id="breadcrumb"></div><h1 id="chapter-title"></h1><div class="rule"></div><div id="content" class="content"></div><div id="quiz"></div><nav class="page-nav" aria-label="ページ移動"><button id="previous">← 前へ</button><button class="primary" id="next">次へ →</button></nav></article>
-      <aside class="right-rail"><div class="rail-inner"><h2>この章</h2><nav id="in-page"></nav><button id="bookmark" class="bookmark">☆　しおりを付ける</button><p id="progress" class="progress"></p></div></aside>
+      <article class="reading"><div class="breadcrumb" id="breadcrumb"></div><h1 id="chapter-title" tabindex="-1"></h1><div class="reading-tools"><span id="progress" class="progress"></span><button id="bookmark" class="bookmark" aria-pressed="false">しおりを付ける</button></div><details class="chapter-outline" id="outline"><summary>このページの目次</summary><nav id="in-page" aria-label="このページの目次"></nav></details><div id="content" class="content"></div><div id="quiz"></div><nav class="page-nav" aria-label="ページ移動"><button id="previous">← 前へ</button><button class="primary" id="next">次へ →</button></nav></article>
     </div>
   </div>
 </main>
