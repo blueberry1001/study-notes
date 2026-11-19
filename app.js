@@ -1,4 +1,4 @@
-import { unlockPayload } from './crypto.js';
+import { passwordKey, unlockPayload } from './crypto.js';
 const $ = id => document.getElementById(id);
 const state = {courses:[],assets:{},course:0,section:0};
 const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -67,10 +67,88 @@ function renderQuiz(quizzes){
    f.querySelector('.reveal-answer').addEventListener('click',reveal);
  });
 }
-$('unlock-form').addEventListener('submit',async e=>{e.preventDefault();const button=e.currentTarget.querySelector('button');button.disabled=true;button.textContent='開いています…';$('error').textContent='';try{const payload=await unlockPayload($('password').value);if(!Array.isArray(payload.courses)||!payload.courses.length)throw new Error('empty');state.courses=payload.courses;state.assets=payload.assets||{};$('course').innerHTML=state.courses.map((c,i)=>`<option value="${i}">${inline(c.title)}</option>`).join('');const position=readSaved('study-position');const ci=state.courses.findIndex(c=>c.id===position?.course);if(ci>=0){state.course=ci;const si=state.courses[ci].sections.findIndex(s=>s.id===position?.section);if(si>=0)state.section=si;}$('unlock').hidden=true;$('reader').hidden=false;$('lock').hidden=false;$('menu').hidden=false;$('password').value='';render();syncMenu();$('chapter-title').focus({preventScroll:true});}catch(err){console.error(err);$('error').textContent='開けませんでした。パスワードまたは教材ファイルを確認してください。';}finally{button.disabled=false;button.textContent='開く →';}});
+// IndexedDB can persist a non-extractable CryptoKey across browser restarts.
+async function rememberedKey(action, key) {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('study-notes:' + new URL('.', import.meta.url).pathname, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('credentials');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('credentials', action === 'read' ? 'readonly' : 'readwrite');
+      const store = tx.objectStore('credentials');
+      let request;
+      if (action === 'read') request = store.get('key');
+      else if (action === 'save') request = store.put(key, 'key');
+      else request = store.delete('key');
+      tx.oncomplete = () => resolve(request.result);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function showReader(payload) {
+  state.courses = payload.courses;
+  state.assets = payload.assets || {};
+  $('course').innerHTML = state.courses.map((c,i)=>`<option value="${i}">${inline(c.title)}</option>`).join('');
+  const position = readSaved('study-position');
+  const ci = state.courses.findIndex(c => c.id === position?.course);
+  if (ci >= 0) {
+    state.course = ci;
+    const si = state.courses[ci].sections.findIndex(s => s.id === position?.section);
+    if (si >= 0) state.section = si;
+  }
+  $('unlock').hidden = true;
+  $('reader').hidden = false;
+  $('lock').hidden = false;
+  $('menu').hidden = false;
+  $('password').value = '';
+  render();
+  syncMenu();
+  $('chapter-title').focus({preventScroll:true});
+}
+
+const openButton = $('unlock-form').querySelector('button');
+async function openReader(automatic) {
+  openButton.disabled = true;
+  openButton.textContent = '開いています…';
+  $('error').textContent = '';
+  try {
+    const key = automatic ? await rememberedKey('read') : await passwordKey($('password').value);
+    if (!key) return;
+    const payload = await unlockPayload(key);
+    if (!payload.courses?.length) throw new Error('empty');
+    if (!automatic) {
+      try { await rememberedKey('save', key); } catch { /* Reading still works without storage. */ }
+    }
+    showReader(payload);
+  } catch (err) {
+    if (!automatic) $('error').textContent = '開けませんでした。パスワードまたは教材ファイルを確認してください。';
+    else if (err.name === 'OperationError') $('error').textContent = 'もう一度パスワードを入力してください。';
+  } finally {
+    openButton.disabled = false;
+    openButton.textContent = '開く →';
+  }
+}
+$('unlock-form').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!openButton.disabled) openReader(false);
+});
+openReader(true);
 $('search').addEventListener('input',renderSearch);$('clear-search').addEventListener('click',()=>{$('search').value='';renderSearch();$('search').focus();});
 $('course').addEventListener('change',e=>{state.course=Number(e.target.value);selectSection(0);});$('previous').addEventListener('click',()=>selectSection(state.section-1));$('next').addEventListener('click',()=>selectSection(state.section+1));
 $('bookmark').addEventListener('click',()=>{const c=state.courses[state.course],s=current(),mark=readSaved('study-bookmark');if(mark?.course===c.id&&mark?.section===s.id)localStorage.removeItem('study-bookmark');else localStorage.setItem('study-bookmark',JSON.stringify({course:c.id,section:s.id}));updateBookmark();});
 $('go-bookmark').addEventListener('click',()=>{const mark=readSaved('study-bookmark'),ci=state.courses.findIndex(c=>c.id===mark?.course);if(ci<0)return;const si=state.courses[ci].sections.findIndex(s=>s.id===mark.section);if(si<0)return;state.course=ci;selectSection(si);});
-$('lock').addEventListener('click',()=>location.reload());$('menu').addEventListener('click',()=>{$('reader').classList.toggle('menu-open');syncMenu();if($('reader').classList.contains('menu-open'))$('course').focus();});$('scrim').addEventListener('click',()=>closeMenu(true));
+$('lock').addEventListener('click',async () => {
+  try {
+    await rememberedKey('forget');
+  } catch {
+    // If storage is inaccessible, still close the current reader.
+  }
+  location.reload();
+});$('menu').addEventListener('click',()=>{$('reader').classList.toggle('menu-open');syncMenu();if($('reader').classList.contains('menu-open'))$('course').focus();});$('scrim').addEventListener('click',()=>closeMenu(true));
 if(localStorage.getItem('study-theme')==='dark')document.body.classList.add('dark');$('theme').addEventListener('click',()=>{document.body.classList.toggle('dark');localStorage.setItem('study-theme',document.body.classList.contains('dark')?'dark':'light');});
