@@ -3,7 +3,16 @@ const $ = id => document.getElementById(id);
 const state = {courses:[],assets:{},course:0,section:0};
 const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cleanTitle = s => s.replace(/\s*\{#[^}]+\}\s*$/,'').trim();
-function inline(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>');}
+function inline(s){
+ const tokens=[],hold=html=>'__STUDY_INLINE_'+(tokens.push(html)-1)+'__';
+ s=String(s).replace(/`([^`]+)`/g,(_,t)=>hold('<code>'+esc(t)+'</code>'));
+ s=s.replace(/\$([^$\n]+)\$/g,(_,t)=>{try{return hold(window.katex.renderToString(t,{displayMode:false,throwOnError:false,strict:false}));}catch{return esc(t);}});
+ s=s.replace(/\[([^\]]+)\]\(([^\s)]+)\)/g,(_,label,url)=>{
+  if(!/^(https?:\/\/|\?|#)/i.test(url))return label;
+  return hold('<a href="'+esc(url)+'"'+(/^https?:/i.test(url)?' target="_blank" rel="noopener noreferrer"':'')+'>'+esc(label)+'</a>');
+ });
+ return esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/__STUDY_INLINE_(\d+)__/g,(_,i)=>tokens[Number(i)]);
+}
 function formula(tex){tex=tex.replace(/\\operatorname\{/g, "\\mathrm{").replace(/\{\\rm\s+([^}]+)\}/g, "{\\mathrm{$1}}");try{return window.katex.renderToString(tex,{displayMode:true,throwOnError:false,strict:false});}catch{return esc(tex);}}
 function renderMarkdown(raw){
   const lines=raw.replace(/\r/g,'').split('\n'); let html='',paragraph=[],details=false,list=false; const headings=[];
@@ -19,7 +28,7 @@ function renderMarkdown(raw){
     }
     if(line.startsWith('$$')){flush();endList();let tex=line.slice(2);if(tex.endsWith('$$'))tex=tex.slice(0,-2);else{while(++i<lines.length&&!lines[i].includes('$$'))tex+='\n'+lines[i];if(i<lines.length)tex+='\n'+lines[i].split('$$')[0];}html+=`<div class="equation">${formula(tex)}</div>`;continue;}
     const fig=line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-    if(fig){flush();endList();const key=fig[2].replace(/^\.\//,'').replace(/^data\//,'');const image=state.assets[key];html+=image?`<figure><img src="${esc(image)}" alt="${esc(fig[1])}" loading="lazy"><figcaption>${inline(fig[1])}</figcaption></figure>`:`<p>${inline(fig[1])}</p>`;continue;}
+    if(fig){flush();endList();const key=fig[2].replace(/^\.\//,'').replace(/^data\//,'');const image=state.assets[key];html+=image?`<figure><button type="button" class="figure-open" data-asset="${esc(key)}" aria-label="図を拡大：${esc(fig[1])}"><img src="${esc(image)}" alt="${esc(fig[1])}" loading="lazy"></button><figcaption>${inline(fig[1])}</figcaption></figure>`:`<p>${inline(fig[1])}</p>`;continue;}
     if(/^[-*] /.test(line)){flush();if(!list){html+='<ul>';list=true;}html+=`<li>${inline(line.slice(2))}</li>`;continue;}
     endList();paragraph.push(line);
   }
@@ -35,7 +44,7 @@ function readSaved(key){try{return JSON.parse(localStorage.getItem(key)||'null')
 function updateBookmark(){const c=state.courses[state.course],s=current(),mark=readSaved('study-bookmark'),marked=mark?.course===c.id&&mark?.section===s.id;$('bookmark').textContent=marked?'しおりを解除':'しおりを付ける';$('bookmark').setAttribute('aria-pressed',String(marked));const ci=state.courses.findIndex(course=>course.id===mark?.course),found=ci>=0&&state.courses[ci].sections.some(section=>section.id===mark?.section);$('go-bookmark').hidden=!found;}
 
 function savePosition(){localStorage.setItem('study-position',JSON.stringify({course:state.courses[state.course].id,section:current().id}));}
-function selectSection(index){state.section=Math.max(0,Math.min(index,state.courses[state.course].sections.length-1));savePosition();render();window.scrollTo({top:0,behavior:'instant'});closeMenu();$('chapter-title').focus({preventScroll:true});}
+function selectSection(index,updateHistory=true){state.section=Math.max(0,Math.min(index,state.courses[state.course].sections.length-1));savePosition();if(updateHistory){const u=new URL(location.href);u.searchParams.set('course',state.courses[state.course].id);u.searchParams.set('section',current().id);u.hash='';history.pushState(null,'',u);}render();window.scrollTo({top:0,behavior:'instant'});closeMenu();$('chapter-title').focus({preventScroll:true});}
 function renderSearch(){
  const term=$('search').value.trim().toLocaleLowerCase(), results=$('search-results');$('clear-search').hidden=!term;$('toc').hidden=!!term;results.hidden=!term;$('nav-title').textContent=term?'検索結果':'目次';
  if(!term){$('section-count').textContent=`${state.courses[state.course].sections.length} ページ`;results.innerHTML='';return;}
@@ -49,6 +58,7 @@ function render(){
  $('toc').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>selectSection(Number(b.dataset.index))));
  $('breadcrumb').textContent=course.title; $('chapter-title').textContent=cleanTitle(section.title);document.title=`${cleanTitle(section.title)} | 講義ノート`;
  const rendered=renderMarkdown(section.markdown); $('content').innerHTML=rendered.html;
+ $('content').querySelectorAll('.equation').forEach(el=>{if(el.scrollWidth>el.clientWidth){el.tabIndex=0;el.setAttribute('role','region');el.setAttribute('aria-label','数式。横にスクロールできます。');}});
  $('in-page').innerHTML=rendered.headings.map(h=>`<a href="#${h.id}">${inline(h.title)}</a>`).join('');
  $('in-page').querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>{const el=document.querySelector(a.getAttribute('href'));if(el?.tagName==='DETAILS')el.open=true;else if(el?.closest('details'))el.closest('details').open=true;}));
  $('previous').disabled=state.section===0; $('next').disabled=state.section===course.sections.length-1; $('previous').textContent=state.section>0?'← '+cleanTitle(course.sections[state.section-1].title):'← 前へ';$('next').textContent=state.section<course.sections.length-1?cleanTitle(course.sections[state.section+1].title)+' →':'次へ →';$('progress').textContent=`${state.section+1} / ${course.sections.length}`; $('outline').hidden=!rendered.headings.length; $('outline').open=false; updateBookmark();
@@ -108,6 +118,7 @@ function showReader(payload) {
   $('menu').hidden = false;
   $('password').value = '';
   render();
+  applyRoute();
   syncMenu();
   $('chapter-title').focus({preventScroll:true});
 }
@@ -152,3 +163,26 @@ $('lock').addEventListener('click',async () => {
   location.reload();
 });$('menu').addEventListener('click',()=>{$('reader').classList.toggle('menu-open');syncMenu();if($('reader').classList.contains('menu-open'))$('course').focus();});$('scrim').addEventListener('click',()=>closeMenu(true));
 if(localStorage.getItem('study-theme')==='dark')document.body.classList.add('dark');$('theme').addEventListener('click',()=>{document.body.classList.toggle('dark');localStorage.setItem('study-theme',document.body.classList.contains('dark')?'dark':'light');});
+
+function applyRoute(){
+ if(!state.courses.length)return;
+ const u=new URL(location.href),ci=state.courses.findIndex(c=>c.id===u.searchParams.get('course'));
+ if(ci<0)return;
+ const si=state.courses[ci].sections.findIndex(s=>s.id===u.searchParams.get('section'));
+ if(si<0)return;
+ state.course=ci;selectSection(si,false);
+ if(u.hash){const target=document.getElementById(u.hash.slice(1));if(target){const details=target.closest('details');if(details)details.open=true;requestAnimationFrame(()=>target.scrollIntoView({block:'start'}));}}
+}
+window.addEventListener('popstate',applyRoute);
+document.addEventListener('click',e=>{
+ const a=e.target.closest('a[href]');
+ if(a && !e.ctrlKey&&!e.metaKey&&!e.shiftKey&&e.button===0){
+  const u=new URL(a.href,location.href);
+  if(u.origin===location.origin&&u.pathname===location.pathname&&u.searchParams.has('course')&&u.searchParams.has('section')){e.preventDefault();history.pushState(null,'',u);applyRoute();return;}
+ }
+ const b=e.target.closest('.figure-open');
+ if(b){const dialog=$('figure-dialog');$('figure-large').src=state.assets[b.dataset.asset];$('figure-large').alt=b.querySelector('img').alt;dialog.classList.remove('actual-size');$('figure-size').setAttribute('aria-pressed','false');dialog.showModal();}
+});
+$('figure-close').addEventListener('click',()=>$('figure-dialog').close());
+$('figure-size').addEventListener('click',()=>{const active=$('figure-dialog').classList.toggle('actual-size');$('figure-size').setAttribute('aria-pressed',String(active));});
+$('figure-dialog').addEventListener('click',e=>{if(e.target===$('figure-dialog'))$('figure-dialog').close();});
